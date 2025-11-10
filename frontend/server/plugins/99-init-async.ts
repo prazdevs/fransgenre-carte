@@ -21,6 +21,7 @@ async function asyncInit() {
   await createAdminUserIfNeeded()
   await initOptionsFromDb()
   initOptionsDbListener()
+  markAsInitialized()
 }
 
 async function ensureDatabaseConnectable() {
@@ -41,7 +42,7 @@ async function ensureDatabaseConnectable() {
   else {
     console.error('FATAL : Couldn\'t connect to the database at startup')
     process.kill(process.pid)
-    throw 'FATAL : Couldn\'t connect to the database at startup'
+    throw null
   }
 }
 
@@ -60,8 +61,9 @@ async function runMigrations() {
     console.info('Migrations executed')
   }
   catch (ex) {
-    console.error(ex)
-    console.warn('Failed to run migrations !')
+    console.error('FATAL : Failed to run migrations ', ex)
+    process.kill(process.pid)
+    throw null
   }
   finally {
     if (connection) await connection.done()
@@ -85,7 +87,12 @@ async function createAdminUserIfNeeded() {
     const parsedPassword = z.string().nonempty().safeParse(process.env.SAFEHAVEN_DEFAULT_PASSWORD)
     let password = parsedPassword.success ? parsedPassword.data : undefined
     if (password == undefined) password = generatePassword({
-      uppercase: true, lowercase: true, numbers: true, symbols: false, excludeSimilarCharacters: true, length: 32,
+      uppercase: true,
+      lowercase: true,
+      numbers: true,
+      symbols: false,
+      excludeSimilarCharacters: true,
+      length: 32,
     })
 
     console.info('No user found, creating admin user %s with password %s', name, password)
@@ -96,14 +103,22 @@ async function createAdminUserIfNeeded() {
     console.warn('Default admin user created, please change the password')
   }
   catch (ex) {
-    console.error(ex)
-    console.warn('Failed to try and create the default admin user if needed')
+    console.error('FATAL : Failed to try and create the default admin user if needed ', ex)
+    process.kill(process.pid)
+    throw null
   }
 }
 
 async function initOptionsFromDb() {
   const { db } = state
-  await refreshCachedOptionsFromDb(db)
+  try {
+    await refreshCachedOptionsFromDb(db)
+  }
+  catch (ex) {
+    console.error('FATAL : Failed to initialize application options ', ex)
+    process.kill(process.pid)
+    throw null
+  }
 }
 
 async function refreshCachedOptionsFromDb(db: IDbLike) {
@@ -144,4 +159,9 @@ function initOptionsDbListener() {
       }
     },
   })
+}
+
+function markAsInitialized() {
+  state.initialized = true
+  console.info('Server initialized')
 }
